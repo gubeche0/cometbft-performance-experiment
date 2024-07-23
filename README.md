@@ -93,3 +93,13 @@ To collect the logs from all nodes, execute the script `download-all-logs.sh` in
 ```
 
 The logs will be downloaded to the `experiment/logsresults` folder.
+
+### 3 Analyze the results
+
+Copy the  `experiment/logsresults` to the `experiment/results` folder adding a sufix to the folder name with the number of nodes and execute the script `run-all.sh` to generate the results.
+
+```bash
+cp -r experiment/logsresults analysis-results/data/logsresults-128-30-12
+cd analysis-results
+./runall.sh 128-30-12 128
+```
