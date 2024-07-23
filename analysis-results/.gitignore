@@ -1,0 +1,4 @@
+.conda/
+data/
+.DS_Store
+data-out/
