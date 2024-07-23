@@ -1,0 +1,1 @@
+Para configurar o acesso SSH, é necessário criar um arquivo chamado `cloud_lab` e inserir nele a chave secreta do SSH. Certifique-se de que o arquivo esteja localizado na pasta correta.

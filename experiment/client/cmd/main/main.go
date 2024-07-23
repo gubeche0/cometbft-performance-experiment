@@ -1,0 +1,198 @@
+package main
+
+import (
+	"cometbft-client-experiment/internal"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"runtime"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+var (
+	outputFile        = flag.String("output", "log.txt", "Output file to write the logs")
+	rpcAddress        = flag.String("rpc", "http://localhost:26657", "Address of the RPC server")
+	webSocket         = flag.String("ws", "ws://localhost:26657/websocket", "Address of the WebSocket server")
+	totalTx           = flag.Int("totalTx", 0, "Total number of transactions to send. 0 means infinite transactions")
+	totalConcurrentTx = flag.Int("totalConcurrentTx", 1, "Total number of concurrent transactions to send")
+)
+
+var (
+	transactionsWaitGroup = sync.WaitGroup{}
+
+	currentBlockHeight = atomic.Int64{}
+
+	running    = atomic.Bool{}
+	loggerChan = make(chan string, 50)
+)
+
+func main() {
+	flag.Parse()
+
+	// loggerChan := make(chan string, 20)
+	f, err := os.Create(*outputFile)
+	if err != nil {
+		panic(err)
+	}
+
+	defer f.Close()
+	running.Store(true)
+	// done := make(chan struct{})
+	listenNewBlocks()
+
+	// TODO: Get the current block height from the RPC server
+	currentBlockHeight.Store(-1)
+	transactionsWaitGroup.Add(*totalConcurrentTx)
+	for i := 0; i < *totalConcurrentTx; i++ {
+		go workTransaction(*totalTx)
+	}
+	logMetrics()
+
+	go func() {
+		transactionsWaitGroup.Wait()
+		running.Store(false)
+		close(loggerChan)
+	}()
+
+	for log := range loggerChan {
+		_, err := f.WriteString(log + "\n")
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func logInFile(logStr string) {
+	if running.Load() {
+		loggerChan <- logStr
+	}
+}
+
+func listenNewBlocks() {
+	// { "jsonrpc": "2.0","method": "subscribe","id": 0,"params": {"query": "tm.event='"'NewBlock'"'"} }
+	// subscribeRequest := `{"jsonrpc":"2.0","method":"subscribe","params":["tm.event='NewBlock'"],"id":"1"}`
+	subscribeRequest := `{"jsonrpc":"2.0","method":"subscribe","params":["tm.event='NewBlock'"],"id":"1"}`
+	c, _, err := websocket.DefaultDialer.Dial(*webSocket, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		defer c.Close()
+		for {
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+				return
+			}
+			// fmt.Println(string(message))
+			go logMetrics()
+
+			var NewBlock internal.NewBlock
+			json.Unmarshal(message, &NewBlock)
+			if NewBlock.Result.Data.Value.Block.Header.Height != "" {
+				newHeight, err := strconv.ParseInt(NewBlock.Result.Data.Value.Block.Header.Height, 10, 64)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				// log.Printf("New block height: %d\n", newHeight)
+
+				curentBlock := currentBlockHeight.Load()
+				if newHeight > curentBlock {
+					currentBlockHeight.CompareAndSwap(curentBlock, newHeight)
+				}
+
+				totalTxs := len(NewBlock.Result.Data.Value.Block.Data.Txs)
+				timeInTransaction := NewBlock.Result.Data.Value.Block.Header.Time
+				// timeNow := time.Now().Format("2006-01-02 15:04:05")
+				timeNow := time.Now().UTC().Format(time.RFC3339Nano)
+				logInFile(fmt.Sprintf("NewBlock;%d;%d;%s;%s", newHeight, totalTxs, timeInTransaction, timeNow))
+			}
+		}
+	}()
+
+	err = c.WriteMessage(websocket.TextMessage, []byte(subscribeRequest))
+	if err != nil {
+		panic(err)
+	}
+
+	// <-done
+}
+
+func workTransaction(totalTx int) {
+	x := 0
+	defer transactionsWaitGroup.Done()
+	for (x < totalTx) || (totalTx == 0) {
+		// Generate 1KB transaction
+		transaction := generateTransaction(1024)
+		tx := url.QueryEscape(string(transaction))
+
+		start := time.Now()
+		startBlockHeight := currentBlockHeight.Load()
+
+		// resp, err := http.Get(fmt.Sprintf("%s/broadcast_tx_sync?tx=\"%s\"", *rpcAddress, tx))
+		// resp, err := http.Get(fmt.Sprintf("%s/broadcast_tx_async?tx=\"%s\"", *rpcAddress, tx))
+		resp, err := http.Get(fmt.Sprintf("%s/broadcast_tx_commit?tx=\"%s\"", *rpcAddress, tx))
+		if err != nil {
+			// Tratar erro
+			panic(err)
+		}
+
+		elapsed := time.Since(start)
+		var CommitTx internal.CommitTx
+		json.NewDecoder(resp.Body).Decode(&CommitTx)
+		// TODO: Tratar erros com status code 200
+
+		if CommitTx.Result.Height != "" {
+			newHeight, err := strconv.ParseInt(CommitTx.Result.Height, 10, 64)
+			if err != nil {
+				panic(err)
+			}
+			if newHeight > startBlockHeight {
+				currentBlockHeight.CompareAndSwap(startBlockHeight, newHeight)
+			}
+		} else {
+			fmt.Println("Height is empty")
+		}
+
+		finalBlockHeight := currentBlockHeight.Load()
+		timeStart := start.UTC().Format(time.RFC3339Nano)
+		timeNow := time.Now().UTC().Format(time.RFC3339Nano)
+		logInFile(fmt.Sprintf("transaction;%s;%d;%d;%s;%s;%s", resp.Status, startBlockHeight, finalBlockHeight, elapsed, timeStart, timeNow))
+
+		resp.Body.Close()
+		x++
+	}
+}
+
+func generateTransaction(size int) string {
+	transaction := make([]byte, size)
+	// Generate random transaction data
+	rand.Read(transaction)
+
+	base64Transaction := base64.StdEncoding.EncodeToString(transaction)
+
+	return base64Transaction
+}
+
+func logMetrics() {
+
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	fmt.Printf("metrics;CPU(s): %d; Mem Total alloc: %d; Mem total \n", runtime.NumCPU(), m.TotalAlloc)
+
+	// m.TotalAlloc
+}

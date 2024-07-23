@@ -1,0 +1,6 @@
+[rpc]
+laddr = "tcp://0.0.0.0:26657"
+timeout_broadcast_tx_commit = "120s"
+
+[instrumentation]
+prometheus = true

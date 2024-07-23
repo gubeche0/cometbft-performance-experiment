@@ -1,0 +1,6 @@
+Host node*
+  IdentityFile /usr/local/cometbft-experiment/experiment/config/ssh/cloud_lab
+
+Host github.com
+  AddKeysToAgent yes
+  IdentityFile /usr/local/cometbft-experiment/experiment/config/ssh/cloud_lab
