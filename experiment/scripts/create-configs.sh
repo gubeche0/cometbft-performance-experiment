@@ -16,7 +16,7 @@ rm -r $DIR/node-configs
 
 # configure path comebft
 
-$BINARY testnet --config $DIR/config-template.toml --o $DIR/node-configs  --starting-ip-address 10.10.1.2 --v $totalNodes
+$BINARY testnet --config $DIR/config/config-template.toml --o $DIR/node-configs  --starting-ip-address 10.10.1.2 --v $totalNodes
 
 # Copy to remote
 

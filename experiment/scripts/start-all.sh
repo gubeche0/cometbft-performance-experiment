@@ -9,7 +9,7 @@ fi
 totalNodes="$1"
 
 SCRIPT_DIR=$(dirname $(readlink -f "$0"))
-BINARY="$SCRIPT_DIR/cometbft"
+BINARY="$SCRIPT_DIR/../cometbft"
 
 DIR=$(dirname $(readlink -f "$0"))
 DIR_HOME_COMETBFT="$DIR/../.cometbft"
