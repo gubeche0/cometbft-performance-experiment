@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -40,7 +39,6 @@ var (
 func main() {
 	flag.Parse()
 
-	// loggerChan := make(chan string, 20)
 	f, err := os.Create(*outputFile)
 	if err != nil {
 		panic(err)
@@ -48,7 +46,6 @@ func main() {
 
 	defer f.Close()
 	running.Store(true)
-	// done := make(chan struct{})
 	listenNewBlocks()
 
 	// TODO: Get the current block height from the RPC server
@@ -57,7 +54,6 @@ func main() {
 	for i := 0; i < *totalConcurrentTx; i++ {
 		go workTransaction(*totalTx)
 	}
-	logMetrics()
 
 	go func() {
 		transactionsWaitGroup.Wait()
@@ -80,8 +76,6 @@ func logInFile(logStr string) {
 }
 
 func listenNewBlocks() {
-	// { "jsonrpc": "2.0","method": "subscribe","id": 0,"params": {"query": "tm.event='"'NewBlock'"'"} }
-	// subscribeRequest := `{"jsonrpc":"2.0","method":"subscribe","params":["tm.event='NewBlock'"],"id":"1"}`
 	subscribeRequest := `{"jsonrpc":"2.0","method":"subscribe","params":["tm.event='NewBlock'"],"id":"1"}`
 	c, _, err := websocket.DefaultDialer.Dial(*webSocket, nil)
 	if err != nil {
@@ -96,8 +90,6 @@ func listenNewBlocks() {
 				log.Println("read:", err)
 				return
 			}
-			// fmt.Println(string(message))
-			go logMetrics()
 
 			var NewBlock internal.NewBlock
 			json.Unmarshal(message, &NewBlock)
@@ -107,7 +99,6 @@ func listenNewBlocks() {
 					log.Println(err)
 					continue
 				}
-				// log.Printf("New block height: %d\n", newHeight)
 
 				curentBlock := currentBlockHeight.Load()
 				if newHeight > curentBlock {
@@ -116,7 +107,6 @@ func listenNewBlocks() {
 
 				totalTxs := len(NewBlock.Result.Data.Value.Block.Data.Txs)
 				timeInTransaction := NewBlock.Result.Data.Value.Block.Header.Time
-				// timeNow := time.Now().Format("2006-01-02 15:04:05")
 				timeNow := time.Now().UTC().Format(time.RFC3339Nano)
 				logInFile(fmt.Sprintf("NewBlock;%d;%d;%s;%s", newHeight, totalTxs, timeInTransaction, timeNow))
 			}
@@ -127,8 +117,6 @@ func listenNewBlocks() {
 	if err != nil {
 		panic(err)
 	}
-
-	// <-done
 }
 
 func workTransaction(totalTx int) {
@@ -142,11 +130,9 @@ func workTransaction(totalTx int) {
 		start := time.Now()
 		startBlockHeight := currentBlockHeight.Load()
 
-		// resp, err := http.Get(fmt.Sprintf("%s/broadcast_tx_sync?tx=\"%s\"", *rpcAddress, tx))
-		// resp, err := http.Get(fmt.Sprintf("%s/broadcast_tx_async?tx=\"%s\"", *rpcAddress, tx))
 		resp, err := http.Get(fmt.Sprintf("%s/broadcast_tx_commit?tx=\"%s\"", *rpcAddress, tx))
 		if err != nil {
-			// Tratar erro
+			// TODO: Tratar erro
 			panic(err)
 		}
 
@@ -177,22 +163,10 @@ func workTransaction(totalTx int) {
 	}
 }
 
+// Generate random transaction data
 func generateTransaction(size int) string {
 	transaction := make([]byte, size)
-	// Generate random transaction data
 	rand.Read(transaction)
 
-	base64Transaction := base64.StdEncoding.EncodeToString(transaction)
-
-	return base64Transaction
-}
-
-func logMetrics() {
-
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	fmt.Printf("metrics;CPU(s): %d; Mem Total alloc: %d; Mem total \n", runtime.NumCPU(), m.TotalAlloc)
-
-	// m.TotalAlloc
+	return base64.StdEncoding.EncodeToString(transaction)
 }
